@@ -1,0 +1,64 @@
+name: fs01-marketplace
+services:
+  mongo:
+    image: mongo:8.0
+    container_name: fs01-mongo
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  mongo-rs-init:
+    image: mongo:8.0
+    container_name: fs01-mongo-rs-init
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      'until mongosh "mongodb://mongo:27017/admin" --quiet --eval "db.adminCommand(\"ping\").ok" >/dev/null 2>&1; do sleep 2; done;
+      mongosh "mongodb://mongo:27017/admin" --quiet --eval
+      "try { rs.status().ok } catch (e) { rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"mongo:27017\"}]}) }"'
+    restart: "no"
+
+  redis:
+    image: redis:8-alpine
+    container_name: fs01-redis
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-dev_redis_password_change_me}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.0
+    container_name: fs01-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  redis_data:
+  elasticsearch_data:

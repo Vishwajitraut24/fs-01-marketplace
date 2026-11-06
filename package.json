@@ -1,0 +1,29 @@
+{
+  "name": "fs-01-marketplace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-vendor e-commerce marketplace monorepo",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=26 <27",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev --workspace @fs01/api",
+    "dev:web": "npm run dev --workspace @fs01/web",
+    "build": "npm run build --workspace @fs01/api && npm run build --workspace @fs01/web",
+    "typecheck": "npm run typecheck --workspace @fs01/api && npm run typecheck --workspace @fs01/web",
+    "test": "npm run test --workspace @fs01/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "typescript": "^5.9.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
