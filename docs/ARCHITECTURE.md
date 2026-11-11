@@ -1,37 +1,252 @@
-# FS-01 Architecture
+# FS-01 - System Architecture
 
-## Architecture style
+## 1. Architecture Overview
 
-A TypeScript monorepo with independently deployable React and Express applications. The backend follows a modular monolith / clean-architecture direction: HTTP routes are adapters, application services own use cases, and infrastructure adapters own MongoDB, Redis, Elasticsearch, S3 and payment-provider access.
+FS-01 is a full-stack, multi-vendor e-commerce marketplace implemented as a TypeScript monorepo.
 
-## Runtime components
+The system follows a modular monolithic backend architecture. The frontend and backend are maintained as separate workspaces and can be deployed independently.
 
-- **Web:** React + Vite + TypeScript + Tailwind CSS. Deploy independently (for example, Vercel or a static host).
-- **API:** Node.js + Express + TypeScript REST API. Deploy independently (for example, AWS or Render).
-- **MongoDB:** system of record for users, vendor profiles, catalog, inventory, orders, payments and audit history. Use a replica set in development and production to support transactions and change streams.
-- **Redis:** ephemeral cart/session/cache/rate-limit data. MongoDB remains the durable source of truth for placed orders.
-- **Elasticsearch:** derived search index. It is rebuildable from MongoDB and is not the source of truth.
-- **S3:** private object storage for uploads; issue short-lived presigned URLs after authorization and validate uploaded objects.
-- **Payment provider:** provider adapter (Razorpay Route initially) isolates provider API calls, webhook verification and transfer orchestration from order logic.
+The architecture separates presentation, application logic, data persistence, infrastructure integrations and external payment services.
 
-## Core commerce flow
+## 2. Technology Stack
 
-1. Customer cart is read from Redis and reconciled against authoritative product prices and inventory in MongoDB.
-2. Checkout creates a pending parent order and vendor-specific suborders in a MongoDB transaction, with inventory reservations.
-3. API creates a payment order with the configured payment provider and returns only the checkout-safe fields to the browser.
-4. Provider webhooks are signature-verified and idempotently recorded. A browser redirect is never proof of payment.
-5. A successful payment moves the order to paid/processing. Vendor suborders are fulfilled independently.
-6. Transfers are initiated according to the payment provider's supported marketplace workflow and a configurable commission ledger. Refunds and reversals create compensating ledger entries; never rewrite historical money movements.
+| Component | Technology |
+|---|---|
+| Frontend | React, Vite, TypeScript |
+| Styling | Tailwind CSS |
+| Backend | Node.js, Express.js, TypeScript |
+| Database | MongoDB, Mongoose |
+| Caching / Infrastructure | Redis |
+| Product Search | Elasticsearch |
+| Payment Gateway | Razorpay |
+| Validation | Zod |
+| Containerization | Docker, Docker Compose |
+| Version Control | Git, GitHub |
 
-## Security boundaries
+## 3. Runtime Components
 
-- Deny access by default; authorize every resource using both role and ownership checks.
-- Keep secrets on the server. Browser code receives no database, Redis, S3 secret, or payment secret.
-- Store money as integer paise and use deterministic rounding rules.
-- Verify webhook signatures against the raw request body and enforce idempotency.
-- Use short-lived presigned S3 URLs, MIME/size allowlists, generated object keys and malware scanning before public delivery.
-- Apply request validation, output shaping, rate limits, structured redacted logs and audit events.
+### Frontend
 
-## Deployment boundaries
+Location: `apps/web`
 
-Deploy `apps/web` and `apps/api` independently. MongoDB, Redis and Elasticsearch should be managed services or private network services; do not expose them publicly. Configure CORS with the exact production web origin. Production secrets belong in the deployment secret manager, not `.env` or Git.
+Responsibilities:
+- Customer storefront and product discovery.
+- Customer registration and login.
+- Shopping cart and checkout interface.
+- Customer order history.
+- Vendor dashboard and product management.
+- Administrative vendor management.
+
+The frontend communicates with the backend through REST API endpoints.
+
+### Backend API
+
+Location: `apps/api`
+
+Responsibilities:
+- Authentication and authorization.
+- Customer and vendor operations.
+- Product and inventory management.
+- Catalog search and filtering.
+- Shopping cart operations.
+- Checkout and order creation.
+- Payment order creation and verification.
+- Razorpay webhook processing.
+- Vendor order fulfillment.
+- Scheduled unpaid-order cleanup.
+
+The backend is organized around routes, middleware, services, models and infrastructure integrations.
+
+### MongoDB
+
+MongoDB is the primary persistent database.
+
+It stores application data such as:
+- User accounts.
+- Vendor profiles.
+- Product information.
+- Cart information.
+- Customer orders.
+- Seller-specific order information.
+- Payment references and order status.
+- Razorpay webhook event records.
+
+MongoDB replica-set configuration supports transaction-based checkout and inventory operations.
+
+### Redis
+
+Redis is included in the application infrastructure and provides support for transient application data and caching.
+
+MongoDB remains the durable source of truth for customer orders and product records.
+
+### Elasticsearch
+
+Elasticsearch provides product search functionality.
+
+MongoDB remains the authoritative product database. Elasticsearch stores derived search documents that can be synchronized or rebuilt from eligible MongoDB product records.
+
+Product search supports:
+- Product-name matching.
+- Brand matching.
+- Category matching.
+- Description matching.
+- Fuzzy matching.
+
+Only eligible active products from approved vendors are included in public search results.
+
+### Razorpay
+
+The payment integration supports Razorpay Test Mode.
+
+Implemented payment operations include:
+- Payment order creation.
+- Razorpay order reference storage.
+- Payment signature verification.
+- Payment verification with Razorpay.
+- Payment capture handling.
+- Webhook signature verification.
+- Webhook event processing and duplicate-event protection.
+
+Live marketplace settlements and automated vendor payouts require additional gateway configuration and implementation.
+
+## 4. Core Marketplace Workflows
+
+### Customer Authentication
+
+1. Customer submits registration details.
+2. Backend validates the request.
+3. Password is securely hashed.
+4. Customer account is stored in MongoDB.
+5. Authentication tokens are generated.
+6. Customer can access protected application functionality.
+
+### Vendor Onboarding
+
+1. Vendor submits an application.
+2. Backend validates vendor information.
+3. Application is stored in MongoDB.
+4. Administrator reviews the application.
+5. Approved vendors can access vendor functionality.
+6. Vendor products become eligible for public catalog visibility when active.
+
+### Product Management and Search
+
+1. Vendor creates or updates a product.
+2. Product information is stored in MongoDB.
+3. Product lifecycle changes trigger Elasticsearch synchronization.
+4. Vendor approval controls product search visibility.
+5. Customers discover eligible products through the catalog API.
+
+### Shopping Cart and Checkout
+
+1. Customer adds products to the cart.
+2. Backend validates product availability and pricing.
+3. Checkout creates the parent order and seller-specific order information.
+4. Inventory is reserved through database operations.
+5. Order begins in the appropriate payment-pending state.
+6. Customer completes the selected payment method.
+
+### Payment Processing
+
+1. Backend creates a Razorpay payment order.
+2. Razorpay order reference is associated with the marketplace order.
+3. Customer completes the payment flow.
+4. Backend verifies the payment signature.
+5. Payment details are checked with Razorpay.
+6. Successful payment updates the marketplace order.
+7. Webhooks provide an additional verified payment-event processing mechanism.
+
+A browser redirect alone is not considered proof of successful payment.
+
+### Vendor Order Fulfillment
+
+1. Vendor views eligible seller orders.
+2. Vendor updates fulfillment information.
+3. Backend validates the operation.
+4. Order information is updated in MongoDB.
+
+### Unpaid Order Expiry
+
+The backend periodically checks eligible unpaid Razorpay orders.
+
+For qualifying orders that never received a Razorpay gateway order ID:
+1. The order is checked again inside a MongoDB transaction.
+2. Reserved inventory is restored.
+3. The order is marked cancelled.
+4. Payment and seller fulfillment statuses are updated.
+5. Product search documents are synchronized.
+
+Orders already linked to a Razorpay gateway order are excluded from this cleanup process to avoid unsafe inventory restoration while payment status may still be unresolved.
+
+## 5. Data Flow
+
+```text
+Customer / Vendor / Admin
+          |
+          v
+    React Frontend
+          |
+          v
+     Express REST API
+          |
+          v
+    Application Services
+          |
+    +-----+--------+----------+
+    |              |          |
+    v              v          v
+ MongoDB          Redis   Elasticsearch
+    |
+    v
+ Razorpay Payment Integration
+    |
+    v
+ Payment Verification / Webhooks
+```
+
+MongoDB is the primary data source. Redis supports transient infrastructure needs, while Elasticsearch provides derived product-search functionality.
+
+## 6. Security Boundaries
+
+- Validate incoming API requests.
+- Protect sensitive operations with authentication and authorization.
+- Apply role and resource-ownership checks.
+- Hash user passwords before storage.
+- Keep payment secrets and database credentials on the backend.
+- Verify Razorpay payment signatures.
+- Verify webhook signatures against the original request body.
+- Protect webhook processing against duplicate events.
+- Keep `.env` files out of version control.
+- Use HTTPS and secured infrastructure in production.
+- Avoid publicly exposing MongoDB, Redis and Elasticsearch.
+- Use restricted production credentials and appropriate network access controls.
+
+## 7. Deployment Architecture
+
+The frontend and backend are maintained as independent applications.
+
+The infrastructure directory contains Docker Compose configuration for local development services.
+
+Production deployment requires:
+- Production environment variables.
+- Secure MongoDB deployment.
+- Secure Redis deployment.
+- Protected Elasticsearch deployment.
+- HTTPS and correct CORS configuration.
+- Production Razorpay credentials and webhook configuration.
+- Logging, monitoring and database backup procedures.
+
+Provider-specific production deployment configuration has not been established as part of the current local development milestone.
+
+## 8. Future Enhancements
+
+Potential future capabilities include:
+- Automated vendor settlements and payouts.
+- Commission and transaction ledger.
+- S3-compatible product image storage.
+- Product reviews and ratings.
+- Coupon and promotional management.
+- Advanced analytics and reporting.
+- Production deployment and monitoring.
+
+These capabilities should be treated as future enhancements unless separately implemented and tested.
