@@ -47,7 +47,6 @@ const cartSchema = new Schema<Cart>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      unique: true,
     },
 
     items: {
@@ -60,9 +59,10 @@ const cartSchema = new Schema<Cart>(
   },
 );
 
-// One cart per customer.
+// Ensure one cart per customer.
 cartSchema.index({ user: 1 }, { unique: true });
 
+// Export cart model.
 export const CartModel =
   mongoose.models.Cart ||
   mongoose.model<Cart>("Cart", cartSchema);

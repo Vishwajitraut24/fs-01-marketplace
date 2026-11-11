@@ -7,6 +7,7 @@ import { ProductModel, PRODUCT_STATUSES } from "../models/product.model.js";
 import type { ProductStatus } from "../models/product.model.js";
 import { VendorModel } from "../models/vendor.model.js";
 import { AppError } from "../middleware/app-error.js";
+import { syncProductToSearch } from "./product-search.service.js";
 
 // Validate product images.
 const productImageSchema = z.object({
@@ -101,14 +102,16 @@ export async function createProduct(
 
   try {
     const product = await ProductModel.create({
-      ...data,
-      vendor: vendor._id,
-      slug: generateSlug(data.name),
-      sku: data.sku.toUpperCase(),
-      status: "DRAFT",
-    });
+  ...data,
+  vendor: vendor._id,
+  slug: generateSlug(data.name),
+  sku: data.sku.toUpperCase(),
+  status: "DRAFT",
+});
 
-    return product;
+await syncProductToSearch(product._id.toString());
+
+return product;
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       throw new AppError(
@@ -207,8 +210,9 @@ export async function updateProduct(
   }
 
   try {
-    await product.save();
-    return product;
+      await product.save();
+     await syncProductToSearch(product._id.toString());
+     return product;
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       throw new AppError(
@@ -249,9 +253,11 @@ export async function deleteProduct(
 
   await product.save();
 
-  return {
-    id: product._id,
-    name: product.name,
-    status: product.status,
-  };
+await syncProductToSearch(product._id.toString());
+
+return {
+  id: product._id,
+  name: product.name,
+  status: product.status,
+};
 }

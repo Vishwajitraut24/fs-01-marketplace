@@ -1,41 +1,75 @@
 
 import { env } from "../config/env.js";
 import { logger } from "./logger.js";
+
 import {
   connectMongo,
   disconnectMongo,
   isMongoReady,
 } from "./mongo.js";
+
 import {
   connectRedis,
   disconnectRedis,
   redis,
 } from "./redis.js";
+
 import {
   connectElasticsearch,
   disconnectElasticsearch,
   elasticsearch,
 } from "./elasticsearch.js";
 
-export async function connectInfrastructure(): Promise<void> {
-  // MongoDB and Redis are required for the marketplace.
-  await Promise.all([connectMongo(), connectRedis()]);
+import {
+  ensureProductSearchIndex,
+  syncAllApprovedVendorProducts,
+} from "../services/product-search.service.js";
 
-  // Elasticsearch is required in production but optional locally.
+// Track whether Elasticsearch successfully connected.
+let elasticsearchConnected = false;
+
+export async function connectInfrastructure(): Promise<void> {
+  // MongoDB and Redis are required.
+  await Promise.all([
+    connectMongo(),
+    connectRedis(),
+  ]);
+
+  // Attempt Elasticsearch connection in every environment.
+  try {
+  await connectElasticsearch();
+
+  elasticsearchConnected = true;
+
+  await ensureProductSearchIndex();
+
+  await syncAllApprovedVendorProducts();
+
+  logger.info("Elasticsearch connected and product index is ready");
+} catch (error) {
   if (env.NODE_ENV === "production") {
-    await connectElasticsearch();
-  } else {
-    logger.info("Elasticsearch connection skipped in development");
+    throw error;
   }
 
-  logger.info("Required infrastructure dependencies are ready");
+  logger.warn(
+    { error },
+    "Elasticsearch unavailable in development",
+  );
+}
+
+  logger.info("Infrastructure dependencies initialized");
 }
 
 export async function disconnectInfrastructure(): Promise<void> {
-  const disconnectTasks = [disconnectMongo(), disconnectRedis()];
+  const disconnectTasks = [
+    disconnectMongo(),
+    disconnectRedis(),
+  ];
 
-  if (env.NODE_ENV === "production") {
+  // Close Elasticsearch only if it connected successfully.
+  if (elasticsearchConnected) {
     disconnectTasks.push(disconnectElasticsearch());
+    elasticsearchConnected = false;
   }
 
   const results = await Promise.allSettled(disconnectTasks);
@@ -59,11 +93,7 @@ export async function getDependencyHealth(): Promise<
     elasticsearch: "down",
   };
 
-  // Do not ping Elasticsearch during local development.
-  if (env.NODE_ENV !== "production") {
-    return status;
-  }
-
+  // Check Elasticsearch in both development and production.
   try {
     await elasticsearch.ping();
     status.elasticsearch = "up";

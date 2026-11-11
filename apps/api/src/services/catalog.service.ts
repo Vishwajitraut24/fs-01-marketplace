@@ -6,6 +6,8 @@ import { ProductModel } from "../models/product.model.js";
 import { VendorModel } from "../models/vendor.model.js";
 import { AppError } from "../middleware/app-error.js";
 
+import { searchProductIds } from "./product-search.service.js";
+
 // Validate public product catalog filters.
 const catalogQuerySchema = z.object({
   q: z.string().trim().min(1).max(100).optional(),
@@ -81,6 +83,17 @@ export async function getPublicProducts(input: unknown) {
   }
 
   if (filters.q) {
+  const elasticsearchIds = await searchProductIds(filters.q);
+
+  const validProductIds = elasticsearchIds
+    .filter((id) => mongoose.isValidObjectId(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+
+  if (validProductIds.length > 0) {
+    // Elasticsearch is the primary search engine.
+    match._id = { $in: validProductIds };
+  } else {
+    // MongoDB fallback when Elasticsearch has no results.
     const search = new RegExp(
       escapeRegex(filters.q),
       "i",
@@ -93,6 +106,7 @@ export async function getPublicProducts(input: unknown) {
       { category: search },
     ];
   }
+}
 
   if (
     filters.minPricePaise !== undefined ||

@@ -20,6 +20,8 @@ import type {
 
 import { AppError } from "../middleware/app-error.js";
 
+import { syncProductToSearch } from "./product-search.service.js";
+
 // Validate checkout information.
 const createOrderSchema = z.object({
   paymentMethod: z.enum(PAYMENT_METHODS),
@@ -316,14 +318,31 @@ export async function createOrder(
     });
 
     if (!result) {
-      throw new AppError(
-        500,
-        "ORDER_CREATION_FAILED",
-        "The order could not be created.",
-      );
-    }
+  throw new AppError(
+    500,
+    "ORDER_CREATION_FAILED",
+    "The order could not be created.",
+  );
+}
 
-    return result;
+// Synchronize product inventory after the MongoDB transaction commits.
+const sellerOrders = result.sellerOrders as SellerOrder[];
+
+const orderedProductIds: string[] = [
+  ...new Set(
+    sellerOrders.flatMap((sellerOrder) =>
+      sellerOrder.items.map((item) => String(item.productId)),
+    ),
+  ),
+];
+
+await Promise.all(
+  orderedProductIds.map((productId) =>
+    syncProductToSearch(productId),
+  ),
+);
+
+return result;
   } finally {
     await session.endSession();
   }

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { VendorModel } from "../models/vendor.model.js";
 import { UserModel } from "../models/user.model.js";
 import { AppError } from "../middleware/app-error.js";
+import { syncVendorProducts } from "./product-search.service.js";
 
 // Validate vendor application IDs.
 const vendorIdSchema = z.string().refine(
@@ -150,14 +151,17 @@ export async function approveVendor(
   }
 
   if (!approvedVendor) {
-    throw new AppError(
-      500,
-      "APPROVAL_FAILED",
-      "Vendor approval could not be completed.",
-    );
-  }
+  throw new AppError(
+    500,
+    "APPROVAL_FAILED",
+    "Vendor approval could not be completed.",
+  );
+}
 
-  return approvedVendor;
+// Synchronize the vendor's existing products after approval.
+await syncVendorProducts(approvedVendor.id);
+
+return approvedVendor;
 }
 
 // Reject a vendor application.
