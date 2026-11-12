@@ -4,9 +4,13 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
-
-import { redis } from "../infrastructure/redis.js";
 import { AppError } from "../middleware/app-error.js";
+import { env } from "../config/env.js";
+
+import {
+  redis,
+  upstashRedis,
+} from "../infrastructure/redis.js";
 
 const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
 const ABSOLUTE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -58,6 +62,23 @@ export async function createRefreshSession(userId: string) {
   const absoluteExpiresAt = Date.now() + ABSOLUTE_SESSION_TTL_MS;
   const redisKey = `${SESSION_PREFIX}${sessionId}`;
 
+  if (env.REDIS_PROVIDER === "upstash") {
+  if (!upstashRedis) {
+    throw new Error("Upstash Redis is not configured.");
+  }
+
+  const transaction = upstashRedis.multi();
+
+  transaction.hset(redisKey, {
+    userId,
+    tokenHash,
+    absoluteExpiresAt: String(absoluteExpiresAt),
+  });
+
+  transaction.expire(redisKey, REFRESH_TTL_SECONDS);
+
+  await transaction.exec();
+} else {
   await redis
     .multi()
     .hSet(redisKey, {
@@ -67,6 +88,7 @@ export async function createRefreshSession(userId: string) {
     })
     .expire(redisKey, REFRESH_TTL_SECONDS)
     .exec();
+}
 
   return {
     refreshToken: `${sessionId}.${secret}`,
@@ -122,15 +144,34 @@ export async function rotateRefreshSession(token: string) {
   const newSecret = createRandomToken();
   const redisKey = `${SESSION_PREFIX}${sessionId}`;
 
-  const result = await redis.eval(ROTATE_SESSION_SCRIPT, {
-    keys: [redisKey],
-    arguments: [
-      hashToken(secret),
-      hashToken(newSecret),
-      String(Date.now()),
-      String(REFRESH_TTL_SECONDS),
-    ],
-  });
+  let result: unknown;
+
+const scriptArguments = [
+  hashToken(secret),
+  hashToken(newSecret),
+  String(Date.now()),
+  String(REFRESH_TTL_SECONDS),
+];
+
+if (env.REDIS_PROVIDER === "upstash") {
+  if (!upstashRedis) {
+    throw new Error("Upstash Redis is not configured.");
+  }
+
+  result = await upstashRedis.eval(
+    ROTATE_SESSION_SCRIPT,
+    [redisKey],
+    scriptArguments,
+  );
+} else {
+  result = await redis.eval(
+    ROTATE_SESSION_SCRIPT,
+    {
+      keys: [redisKey],
+      arguments: scriptArguments,
+    },
+  );
+}
 
   if (typeof result !== "string") {
     throw new AppError(
@@ -152,5 +193,13 @@ export async function revokeRefreshSession(token: string | undefined) {
 
   const { sessionId } = parseRefreshToken(token);
 
+  if (env.REDIS_PROVIDER === "upstash") {
+  if (!upstashRedis) {
+    throw new Error("Upstash Redis is not configured.");
+  }
+
+  await upstashRedis.del(`${SESSION_PREFIX}${sessionId}`);
+} else {
   await redis.del(`${SESSION_PREFIX}${sessionId}`);
+}
 }

@@ -106,6 +106,8 @@ export interface Order {
   subtotalPaise: number;
   shippingFeePaise: number;
   discountPaise: number;
+  couponId?: mongoose.Types.ObjectId;
+  couponCode?: string;
   totalPaise: number;
   currency: "INR";
   createdAt: Date;
@@ -389,7 +391,16 @@ const orderSchema = new Schema<Order>(
       min: 0,
       validate: Number.isInteger,
     },
+    couponId: {
+  type: Schema.Types.ObjectId,
+  ref: "Coupon",
+},
 
+couponCode: {
+  type: String,
+  trim: true,
+  uppercase: true,
+},
     totalPaise: {
       type: Number,
       required: true,

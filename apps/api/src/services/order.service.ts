@@ -21,11 +21,25 @@ import type {
 import { AppError } from "../middleware/app-error.js";
 
 import { syncProductToSearch } from "./product-search.service.js";
+import { CouponModel } from "../models/coupon.model.js";
+import { CouponRedemptionModel } from "../models/coupon-redemption.model.js";
+
+import {
+  calculateCouponDiscount,
+} from "./coupon.service.js";
 
 // Validate checkout information.
 const createOrderSchema = z.object({
   paymentMethod: z.enum(PAYMENT_METHODS),
-
+ 
+  couponCode: z
+  .string()
+  .trim()
+  .min(3)
+  .max(40)
+  .regex(/^[A-Za-z0-9_-]+$/)
+  .transform((value) => value.toUpperCase())
+  .optional(),
   shippingAddress: z.object({
     fullName: z.string().trim().min(2).max(120),
     phone: z.string().trim().min(7).max(20),
@@ -218,11 +232,100 @@ export async function createOrder(
       }
 
       // 5. Calculate the final order amount.
-      const shippingFeePaise = 0;
-      const discountPaise = 0;
+    const shippingFeePaise = 0;
+let discountPaise = 0;
 
-      const totalPaise =
-        subtotalPaise + shippingFeePaise - discountPaise;
+let appliedCoupon: {
+  id: mongoose.Types.ObjectId;
+  code: string;
+} | null = null;
+
+// Validate and reserve coupon usage inside the checkout transaction.
+if (data.couponCode) {
+  const now = new Date();
+
+  const coupon = await CouponModel.findOne({
+    code: data.couponCode,
+    isActive: true,
+    startsAt: { $lte: now },
+    expiresAt: { $gt: now },
+  }).session(session);
+
+  if (!coupon) {
+    throw new AppError(
+      400,
+      "INVALID_COUPON",
+      "Coupon is invalid, inactive or expired.",
+    );
+  }
+
+  // Check customer-specific usage limit.
+  const customerUsage = await CouponRedemptionModel.countDocuments({
+    coupon: coupon._id,
+    customer: userId,
+  }).session(session);
+
+  if (customerUsage >= coupon.perCustomerLimit) {
+    throw new AppError(
+      409,
+      "COUPON_CUSTOMER_LIMIT",
+      "You have already reached this coupon's usage limit.",
+    );
+  }
+
+  // Check global usage limit.
+  if (
+    coupon.usageLimit !== null &&
+    coupon.usageLimit !== undefined &&
+    coupon.usedCount >= coupon.usageLimit
+  ) {
+    throw new AppError(
+      409,
+      "COUPON_USAGE_LIMIT",
+      "This coupon has reached its usage limit.",
+    );
+  }
+
+  // Calculate the discount on the server.
+  discountPaise = calculateCouponDiscount(
+    coupon,
+    subtotalPaise,
+  );
+
+  // Atomically reserve one coupon use.
+  const usageUpdate = await CouponModel.updateOne(
+    {
+      _id: coupon._id,
+      isActive: true,
+      startsAt: { $lte: now },
+      expiresAt: { $gt: now },
+      ...(coupon.usageLimit !== null &&
+      coupon.usageLimit !== undefined
+        ? { usedCount: { $lt: coupon.usageLimit } }
+        : {}),
+    },
+    {
+      $inc: { usedCount: 1 },
+    },
+    { session },
+  );
+
+  if (usageUpdate.modifiedCount !== 1) {
+    throw new AppError(
+      409,
+      "COUPON_USAGE_LIMIT",
+      "This coupon is no longer available.",
+    );
+  }
+
+  appliedCoupon = {
+    id: coupon._id,
+    code: coupon.code,
+  };
+}
+
+const totalPaise =
+  subtotalPaise + shippingFeePaise - discountPaise;
 
       if (!Number.isSafeInteger(totalPaise) || totalPaise <= 0) {
         throw new AppError(
@@ -291,14 +394,32 @@ export async function createOrder(
             ),
 
             subtotalPaise,
-            shippingFeePaise,
-            discountPaise,
-            totalPaise,
-            currency: "INR",
+shippingFeePaise,
+discountPaise,
+
+couponId: appliedCoupon?.id,
+couponCode: appliedCoupon?.code,
+
+totalPaise,
+currency: "INR",
           },
         ],
         { session },
       );
+
+      if (appliedCoupon) {
+  await CouponRedemptionModel.create(
+    [
+      {
+        coupon: appliedCoupon.id,
+        customer: new mongoose.Types.ObjectId(userId),
+        order: order._id,
+        discountPaise,
+      },
+    ],
+    { session },
+  );
+}
 
       // 9. Clear the cart only after order creation succeeds.
       await CartModel.updateOne(

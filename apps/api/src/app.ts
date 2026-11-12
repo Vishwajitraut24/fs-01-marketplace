@@ -19,8 +19,28 @@ import orderRouter from "./routes/order.routes.js";
 import vendorOrderRouter from "./routes/vendor-order.routes.js";
 import paymentRouter from "./routes/payment.routes.js";
 import razorpayWebhookRouter from "./routes/razorpay-webhook.routes.js";
+import reviewRouter from "./routes/review.routes.js";
+import { connectInfrastructure } from "./infrastructure/index.js";
 
 export const app = express();
+// Initialize cloud infrastructure when running on Vercel.
+let serverlessInfrastructurePromise: Promise<void> | null = null;
+
+if (process.env.VERCEL === "1") {
+  app.use((_request, _response, next) => {
+    if (!serverlessInfrastructurePromise) {
+      serverlessInfrastructurePromise = connectInfrastructure()
+        .catch((error: unknown) => {
+          serverlessInfrastructurePromise = null;
+          throw error;
+        });
+    }
+
+    void serverlessInfrastructurePromise
+      .then(() => next())
+      .catch(next);
+  });
+}
 
 app.disable("x-powered-by");
 if (env.TRUST_PROXY) app.set("trust proxy", 1);
@@ -56,6 +76,7 @@ app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/access", accessRouter);
 app.use("/api/v1/vendors", vendorRouter);
 app.use("/api/v1/admin", adminRouter);
+app.use("/api/v1/products", reviewRouter);
 app.use("/api/v1/products", productRouter);
 app.use("/api/v1/catalog", catalogRouter);
 app.use("/api/v1/cart", cartRouter);
@@ -70,3 +91,4 @@ app.use((_request, response) => {
 });
 
 app.use(errorHandler);
+export default app;

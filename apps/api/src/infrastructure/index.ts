@@ -1,4 +1,3 @@
-
 import { env } from "../config/env.js";
 import { logger } from "./logger.js";
 
@@ -11,7 +10,7 @@ import {
 import {
   connectRedis,
   disconnectRedis,
-  redis,
+  isRedisReady,
 } from "./redis.js";
 
 import {
@@ -25,54 +24,73 @@ import {
   syncAllApprovedVendorProducts,
 } from "../services/product-search.service.js";
 
-// Track whether Elasticsearch successfully connected.
 let elasticsearchConnected = false;
 
+// Prevent repeated initialization in serverless instances.
+let initializationPromise: Promise<void> | null = null;
+
 export async function connectInfrastructure(): Promise<void> {
-  // MongoDB and Redis are required.
-  await Promise.all([
-    connectMongo(),
-    connectRedis(),
-  ]);
+  if (!initializationPromise) {
+    initializationPromise = (async () => {
+      await Promise.all([
+        isMongoReady()
+          ? Promise.resolve()
+          : connectMongo(),
 
-  // Attempt Elasticsearch connection in every environment.
-  try {
-  await connectElasticsearch();
+        isRedisReady()
+          ? Promise.resolve()
+          : connectRedis(),
+      ]);
 
-  elasticsearchConnected = true;
+      try {
+        await connectElasticsearch();
 
-  await ensureProductSearchIndex();
+        elasticsearchConnected = true;
 
-  await syncAllApprovedVendorProducts();
+        await ensureProductSearchIndex();
 
-  logger.info("Elasticsearch connected and product index is ready");
-} catch (error) {
-  if (env.NODE_ENV === "production") {
-    throw error;
+        await syncAllApprovedVendorProducts();
+
+        logger.info(
+          "Elasticsearch connected and product index is ready",
+        );
+      } catch (error) {
+        if (env.NODE_ENV === "production") {
+          throw error;
+        }
+
+        logger.warn(
+          { error },
+          "Elasticsearch unavailable in development",
+        );
+      }
+
+      logger.info("Infrastructure dependencies initialized");
+    })();
   }
 
-  logger.warn(
-    { error },
-    "Elasticsearch unavailable in development",
-  );
-}
-
-  logger.info("Infrastructure dependencies initialized");
+  try {
+    await initializationPromise;
+  } catch (error) {
+    initializationPromise = null;
+    throw error;
+  }
 }
 
 export async function disconnectInfrastructure(): Promise<void> {
-  const disconnectTasks = [
+  const disconnectTasks: Promise<void>[] = [
     disconnectMongo(),
     disconnectRedis(),
   ];
 
-  // Close Elasticsearch only if it connected successfully.
   if (elasticsearchConnected) {
     disconnectTasks.push(disconnectElasticsearch());
     elasticsearchConnected = false;
   }
 
   const results = await Promise.allSettled(disconnectTasks);
+
+  initializationPromise = null;
 
   for (const result of results) {
     if (result.status === "rejected") {
@@ -89,11 +107,10 @@ export async function getDependencyHealth(): Promise<
 > {
   const status: Record<string, "up" | "down"> = {
     mongodb: isMongoReady() ? "up" : "down",
-    redis: redis.isReady ? "up" : "down",
+    redis: isRedisReady() ? "up" : "down",
     elasticsearch: "down",
   };
 
-  // Check Elasticsearch in both development and production.
   try {
     await elasticsearch.ping();
     status.elasticsearch = "up";

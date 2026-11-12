@@ -19,6 +19,7 @@ import ShoppingExperience from "./components/ShoppingExperience";
 import { RazorpayTestCheckout } from "./components/RazorpayTestCheckout";
 import { getReadiness, type ReadinessResponse } from "./lib/api";
 import VendorDashboard from "./components/VendorDashboard";
+import AdminDashboard from "./components/AdminDashboard";
 
 const categories = [
   "All finds",
@@ -501,6 +502,7 @@ export default function App() {
           </div>
         </section>
         <VendorDashboard />
+        <AdminDashboard />
 
         {/* Developer panel */}
         <section className="mt-12 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">

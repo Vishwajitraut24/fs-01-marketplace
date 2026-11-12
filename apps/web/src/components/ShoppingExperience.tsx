@@ -10,6 +10,7 @@ import {
   clearCustomerCart,
   createCustomerOrder,
   getCustomerOrders,
+  downloadCustomerInvoice,
 } from "../lib/api";
 
 import type {
@@ -48,6 +49,11 @@ export default function ShoppingExperience() {
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [paymentMethod, setPaymentMethod] =
     useState<CustomerPaymentMethod>("CASH_ON_DELIVERY");
+
+  const [couponCode, setCouponCode] = useState("");
+
+  const [downloadingInvoiceId, setDownloadingInvoiceId] =
+  useState<string | null>(null);
 
   const [shippingAddress, setShippingAddress] =
     useState<ShippingAddressInput>({
@@ -97,6 +103,26 @@ export default function ShoppingExperience() {
       setOrdersLoading(false);
     }
   }
+
+  async function handleDownloadInvoice(orderId: string) {
+  if (!token) return;
+
+  setDownloadingInvoiceId(orderId);
+  setError("");
+
+  try {
+    await downloadCustomerInvoice(token, orderId);
+    setMessage("Invoice downloaded successfully.");
+  } catch (err) {
+    setError(
+      err instanceof Error
+        ? err.message
+        : "Unable to download invoice.",
+    );
+  } finally {
+    setDownloadingInvoiceId(null);
+  }
+}
 
   // ==========================================
   // CUSTOMER LOGIN
@@ -336,9 +362,10 @@ export default function ShoppingExperience() {
     setLastCreatedOrder(null);
 
     try {
-      const order = await createCustomerOrder(token, {
-        paymentMethod,
-        shippingAddress: {
+     const order = await createCustomerOrder(token, {
+  paymentMethod,
+  couponCode: couponCode.trim().toUpperCase() || undefined,
+  shippingAddress: {
           ...shippingAddress,
           addressLine2:
             shippingAddress.addressLine2?.trim() || undefined,
@@ -348,6 +375,7 @@ export default function ShoppingExperience() {
       });
 
       setLastCreatedOrder(order);
+      setCouponCode("");
 
       // The backend clears the cart after successful order creation.
       setCart({
@@ -531,10 +559,11 @@ export default function ShoppingExperience() {
       </section>
 
       {/* PRODUCT CATALOG */}
-      <ProductCatalog
+        <ProductCatalog
         onAddToCart={handleAddToCart}
         addingProductId={addingProductId}
-      />
+        token={token}
+       />
 
       {/* SHOPPING CART */}
       <section
@@ -896,7 +925,27 @@ export default function ShoppingExperience() {
                 />
               </div>
             </div>
+                  {/* COUPON CODE */}
+<div className="border-t border-slate-100 pt-6">
+  <h3 className="mb-3 text-lg font-semibold text-[#172b4d]">
+    Apply Coupon
+  </h3>
 
+  <input
+    type="text"
+    value={couponCode}
+    onChange={(event) =>
+      setCouponCode(event.target.value.toUpperCase())
+    }
+    placeholder="Enter coupon code"
+    maxLength={40}
+    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm uppercase outline-none focus:border-blue-600 md:max-w-md"
+  />
+
+  <p className="mt-2 text-xs text-slate-500">
+    Available discounts will be validated automatically during checkout.
+  </p>
+</div>
             {/* Payment method */}
             <div className="border-t border-slate-100 pt-6">
               <h3 className="mb-4 text-lg font-semibold text-[#172b4d]">
@@ -1023,6 +1072,19 @@ export default function ShoppingExperience() {
               <p className="mt-1 text-sm text-emerald-700">
                 Payment: {lastCreatedOrder.payment.status}
               </p>
+              {(lastCreatedOrder.discountPaise ?? 0) > 0 && (
+  <div className="mt-2 text-sm text-emerald-800">
+    <p>
+      Coupon applied: {lastCreatedOrder.couponCode}
+    </p>
+    <p>
+      Discount: {formatPrice(lastCreatedOrder.discountPaise!)}
+    </p>
+    <p>
+      Final amount: {formatPrice(lastCreatedOrder.totalPaise)}
+    </p>
+  </div>
+)}
 
               {lastCreatedOrder.payment.method === "RAZORPAY" && (
                 <p className="mt-3 text-sm text-emerald-800">
@@ -1104,6 +1166,19 @@ export default function ShoppingExperience() {
                       {order.status}
                     </span>
                   </div>
+                  {order.status !== "PENDING_PAYMENT" &&
+  order.status !== "CANCELLED" && (
+    <button
+      type="button"
+      onClick={() => void handleDownloadInvoice(order._id)}
+      disabled={downloadingInvoiceId === order._id}
+      className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
+    >
+      {downloadingInvoiceId === order._id
+        ? "Downloading..."
+        : "Download Invoice"}
+    </button>
+  )}
                 </div>
               ))}
             </div>

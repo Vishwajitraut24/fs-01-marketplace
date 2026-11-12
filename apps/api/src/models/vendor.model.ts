@@ -23,6 +23,7 @@ export interface VendorProfile {
   reviewedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  razorpayAccountId?: string | null;
 }
 
 const vendorSchema = new Schema<VendorProfile>(
@@ -88,6 +89,11 @@ const vendorSchema = new Schema<VendorProfile>(
       type: Date,
       default: null,
     },
+    razorpayAccountId: {
+     type: String,
+     trim: true,
+     default: null,
+   },
   },
   {
     timestamps: true,

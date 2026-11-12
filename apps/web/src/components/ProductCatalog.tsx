@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -11,14 +10,14 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 
-import {
-  getPublicProducts,
-} from "../lib/api";
+import { getPublicProducts } from "../lib/api";
 
 import type {
   PublicProduct,
   ProductCatalogFilters,
 } from "../lib/api";
+
+import ProductReviews from "./ProductReviews";
 
 // Available product categories.
 const categories = [
@@ -48,15 +47,16 @@ function formatPrice(pricePaise: number): string {
   }).format(pricePaise / 100);
 }
 
-
 interface ProductCatalogProps {
   onAddToCart: (productId: string) => void | Promise<void>;
   addingProductId: string | null;
+  token: string | null;
 }
 
 export default function ProductCatalog({
   onAddToCart,
   addingProductId,
+  token,
 }: ProductCatalogProps) {
   const [products, setProducts] = useState<PublicProduct[]>([]);
 
@@ -220,10 +220,7 @@ export default function ProductCatalog({
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 py-3 pl-12 pr-4 text-sm text-gray-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               />
 
-              <button
-                type="submit"
-                className="sr-only"
-              >
+              <button type="submit" className="sr-only">
                 Search
               </button>
             </form>
@@ -440,10 +437,14 @@ export default function ProductCatalog({
                         </span>
                       </div>
 
+                      {/* Add to cart */}
                       <button
                         type="button"
                         onClick={() => void onAddToCart(product._id)}
-                        disabled={!product.inStock || addingProductId === product._id}
+                        disabled={
+                          !product.inStock ||
+                          addingProductId === product._id
+                        }
                         className="mt-4 w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                       >
                         {addingProductId === product._id
@@ -452,6 +453,12 @@ export default function ProductCatalog({
                             ? "Add to Cart"
                             : "Out of Stock"}
                       </button>
+
+                      {/* Product reviews and ratings */}
+                      <ProductReviews
+                        productId={product._id}
+                        token={token}
+                      />
                     </div>
                   </article>
                 );

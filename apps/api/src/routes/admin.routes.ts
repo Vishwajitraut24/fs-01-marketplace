@@ -6,6 +6,17 @@ import {
   getPendingVendors,
   rejectVendor,
 } from "../services/admin-vendor.service.js";
+import {
+  createCoupon,
+  getCoupons,
+  deactivateCoupon,
+} from "../services/coupon.service.js";
+
+import { AppError } from "../middleware/app-error.js";
+
+import {
+  getAdminAnalytics,
+} from "../services/analytics.service.js";
 
 const router = Router();
 
@@ -57,4 +68,61 @@ router.post("/vendors/:vendorId/reject", async (request, response) => {
   });
 });
 
+// ADMIN ANALYTICS DASHBOARD
+router.get("/analytics/overview", async (_request, response) => {
+  const analytics = await getAdminAnalytics();
+
+  response.status(200).json({
+    success: true,
+    data: analytics,
+  });
+});
+
 export default router;
+// GET ALL COUPONS - ADMIN
+router.get("/coupons", async (_request, response) => {
+  const coupons = await getCoupons();
+
+  response.status(200).json({
+    success: true,
+    data: coupons,
+  });
+});
+
+// CREATE COUPON - ADMIN
+router.post("/coupons", async (request, response) => {
+  const coupon = await createCoupon(
+    request.auth!.userId,
+    request.body,
+  );
+
+  response.status(201).json({
+    success: true,
+    message: "Coupon created successfully.",
+    data: coupon,
+  });
+});
+
+// DEACTIVATE COUPON - ADMIN
+router.patch(
+  "/coupons/:couponId/deactivate",
+  async (request, response) => {
+    const couponId = request.params.couponId;
+
+    if (typeof couponId !== "string") {
+      throw new AppError(
+        400,
+        "INVALID_COUPON_ID",
+        "Invalid coupon ID.",
+      );
+    }
+
+    const coupon = await deactivateCoupon(couponId);
+
+    response.status(200).json({
+      success: true,
+      message: "Coupon deactivated successfully.",
+      data: coupon,
+    });
+  },
+);

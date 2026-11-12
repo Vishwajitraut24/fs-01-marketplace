@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 
 import {
@@ -13,6 +12,9 @@ import {
 } from "../middleware/auth.middleware.js";
 
 import { AppError } from "../middleware/app-error.js";
+import {
+  generateCustomerInvoice,
+} from "../services/invoice.service.js";
 
 const router = Router();
 
@@ -66,6 +68,41 @@ router.get("/", async (request, response) => {
     message: "Orders retrieved successfully",
     data: result,
   });
+});
+
+// DOWNLOAD CUSTOMER ORDER INVOICE
+router.get("/:orderId/invoice", async (request, response) => {
+  const orderId = request.params.orderId;
+
+  if (typeof orderId !== "string") {
+    throw new AppError(
+      400,
+      "INVALID_ORDER_ID",
+      "Invalid order ID.",
+    );
+  }
+
+  const pdf = await generateCustomerInvoice(
+    request.auth!.userId,
+    orderId,
+  );
+
+  response.setHeader(
+    "Content-Type",
+    "application/pdf",
+  );
+
+  response.setHeader(
+    "Content-Disposition",
+    `attachment; filename="invoice-${orderId}.pdf"`,
+  );
+
+  response.setHeader(
+    "Content-Length",
+    pdf.length,
+  );
+
+  response.status(200).send(pdf);
 });
 
 // GET ONE CUSTOMER ORDER

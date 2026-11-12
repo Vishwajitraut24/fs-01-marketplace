@@ -57,8 +57,12 @@ export interface CustomerOrder {
   _id: string;
   orderNumber: string;
   status: string;
+  subtotalPaise?: number;
+  discountPaise?: number;
+  couponCode?: string;
   totalPaise: number;
   currency: string;
+  createdAt?: string;
   payment: {
     method: string;
     status: string;
@@ -184,6 +188,7 @@ export interface ShippingAddressInput {
 export interface CreateCustomerOrderInput {
   paymentMethod: CustomerPaymentMethod;
   shippingAddress: ShippingAddressInput;
+  couponCode?: string;
 }
 
 // ==========================================
@@ -519,6 +524,206 @@ export function updateVendorOrderStatus(
       method: "PATCH",
       token,
       body: { status },
+    },
+  );
+}
+// ==========================================
+// PRODUCT REVIEWS API
+// ==========================================
+
+export interface ProductReview {
+  _id: string;
+  rating: number;
+  title: string;
+  comment: string;
+  verifiedPurchase: boolean;
+  createdAt: string;
+}
+
+export interface ProductReviewsResponse {
+  reviews: ProductReview[];
+  statistics: {
+    averageRating: number;
+    totalReviews: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export function getProductReviews(
+  productId: string,
+  page = 1,
+  limit = 10,
+) {
+  return apiRequest<ProductReviewsResponse>(
+    `/products/${encodeURIComponent(productId)}/reviews?page=${page}&limit=${limit}`,
+  );
+}
+
+export function createProductReview(
+  token: string,
+  productId: string,
+  input: {
+    rating: number;
+    title: string;
+    comment: string;
+  },
+) {
+  return apiRequest<ProductReview>(
+    `/products/${encodeURIComponent(productId)}/reviews`,
+    {
+      method: "POST",
+      token,
+      body: input,
+    },
+  );
+}
+
+// ==========================================
+// CUSTOMER INVOICE API
+// ==========================================
+
+export async function downloadCustomerInvoice(
+  token: string,
+  orderId: string,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/orders/${encodeURIComponent(orderId)}/invoice`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/pdf",
+      },
+      credentials: "include",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("Unable to download invoice.");
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `invoice-${orderId}.pdf`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// ==========================================
+// ADMIN ANALYTICS API
+// ==========================================
+
+export interface AdminAnalytics {
+  overview: {
+    totalOrders: number;
+    paidOrders: number;
+    totalCustomers: number;
+    totalVendors: number;
+    approvedVendors: number;
+    activeProducts: number;
+    totalRevenuePaise: number;
+    last30Days: {
+      revenuePaise: number;
+      orders: number;
+    };
+  };
+
+  dailyRevenue: {
+    _id: string;
+    revenuePaise: number;
+    orders: number;
+  }[];
+
+  topProducts: {
+    _id: string;
+    productName: string;
+    quantitySold: number;
+    revenuePaise: number;
+  }[];
+
+  orderStatuses: {
+    _id: string;
+    count: number;
+  }[];
+}
+
+export function getAdminAnalytics(token: string) {
+  return apiRequest<AdminAnalytics>(
+    "/admin/analytics/overview",
+    { token },
+  );
+}
+
+// ==========================================
+// ADMIN COUPON API
+// ==========================================
+
+export interface AdminCoupon {
+  _id: string;
+  code: string;
+  type: "PERCENTAGE" | "FIXED";
+  value: number;
+  maxDiscountPaise?: number;
+  minOrderPaise: number;
+  startsAt: string;
+  expiresAt: string;
+  usageLimit?: number | null;
+  usedCount: number;
+  perCustomerLimit: number;
+  isActive: boolean;
+}
+
+export interface CreateCouponInput {
+  code: string;
+  type: "PERCENTAGE" | "FIXED";
+  value: number;
+  maxDiscountPaise?: number;
+  minOrderPaise: number;
+  expiresAt: string;
+  usageLimit?: number | null;
+  perCustomerLimit: number;
+}
+
+export function getAdminCoupons(token: string) {
+  return apiRequest<AdminCoupon[]>(
+    "/admin/coupons",
+    { token },
+  );
+}
+
+export function createAdminCoupon(
+  token: string,
+  input: CreateCouponInput,
+) {
+  return apiRequest<AdminCoupon>("/admin/coupons", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export function deactivateAdminCoupon(
+  token: string,
+  couponId: string,
+) {
+  return apiRequest<AdminCoupon>(
+    `/admin/coupons/${encodeURIComponent(couponId)}/deactivate`,
+    {
+      method: "PATCH",
+      token,
     },
   );
 }
