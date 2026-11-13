@@ -1,8 +1,8 @@
 import { authRouter } from "./routes/auth.routes.js";
 import cors from "cors";
-import express from "express";
 import { rateLimit } from "express-rate-limit";
-import helmet from "helmet";
+import express, { type RequestHandler } from "express";
+import { createRequire } from "node:module";
 import { pinoHttp } from "pino-http";
 import { env } from "./config/env.js";
 import { logger } from "./infrastructure/logger.js";
@@ -21,6 +21,10 @@ import paymentRouter from "./routes/payment.routes.js";
 import razorpayWebhookRouter from "./routes/razorpay-webhook.routes.js";
 import reviewRouter from "./routes/review.routes.js";
 import { connectInfrastructure } from "./infrastructure/index.js";
+
+// Load Helmet through Node.js CommonJS interop for NodeNext compatibility.
+const nodeRequire = createRequire(import.meta.url);
+const helmet = nodeRequire("helmet") as () => RequestHandler;
 
 export const app = express();
 // Initialize cloud infrastructure when running on Vercel.
