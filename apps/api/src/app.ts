@@ -1,7 +1,7 @@
 import { authRouter } from "./routes/auth.routes.js";
 import cors from "cors";
 import express from "express";
-import rateLimit from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import { env } from "./config/env.js";
